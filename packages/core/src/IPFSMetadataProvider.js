@@ -6,6 +6,14 @@ import RegistryAbi from "singularitynet-platform-contracts/abi/Registry.json";
 import logger from "./utils/logger";
 
 export default class IPFSMetadataProvider {
+  async HeliaClient() {
+    const { createHelia } = await import("helia");
+    return createHelia;
+  }
+  async HeliaJSON() {
+    const { json } = await import("@helia/json");
+    return json;
+  }
   constructor(web3, networkId, ipfsEndpoint) {
     this._web3 = web3;
     this._networkId = networkId;
@@ -19,14 +27,6 @@ export default class IPFSMetadataProvider {
     );
   }
 
-  async HeliaClient() {
-    const { createHelia } = await import("helia");
-    return createHelia;
-  }
-  async HeliaJSON() {
-    const { json } = await import("@helia/json");
-    return json;
-  }
   /**
    * @param {string} orgId
    * @param {string} serviceId
@@ -34,18 +34,22 @@ export default class IPFSMetadataProvider {
    */
   async metadata(orgId, serviceId) {
     logger.debug(
-      `Fetching service metadata [org: ${orgId} | service: ${serviceId}]`
+      "Fetching service metadata [org: ${orgId} | service: ${serviceId}]"
     );
-    const orgIdBytes = this._web3.utils.asciiToHex(orgId);
-    console.log("DEBUG: orgIdBytes: " + orgIdBytes);
-    const serviceIdBytes = this._web3.utils.asciiToHex(serviceId);
-    logger.debug("Fetched serviceIdBytes: " + serviceIdBytes);
-    const orgMetadata = await this._fetchOrgMetadata(orgIdBytes);
-    logger.debug("Fetched org metadata: " + orgMetadata);
+
+    // Convert to hex and pad with zeros to ensure 32 bytes
+    let orgIdHex = this._web3.utils.asciiToHex(orgId);
+    orgIdHex = orgIdHex.padEnd(66, "0"); // 66 = '0x' + 64 hex characters
+
+    let serviceIdHex = this._web3.utils.asciiToHex(serviceId);
+    serviceIdHex = serviceIdHex.padEnd(66, "0"); // 66 = '0x' + 64 hex characters
+
+    const orgMetadata = await this._fetchOrgMetadata(orgIdHex);
     const serviceMetadata = await this._fetchServiceMetadata(
-      orgIdBytes,
-      serviceIdBytes
+      orgIdHex,
+      serviceIdHex
     );
+
     return Promise.resolve(
       this._enhanceServiceGroupDetails(serviceMetadata, orgMetadata)
     );
@@ -72,7 +76,8 @@ export default class IPFSMetadataProvider {
   async _fetchMetadataFromIpfs(metadataURI) {
     const ipfsCID = `${this._web3.utils.hexToUtf8(metadataURI).substring(7)}`;
     logger.debug(`Fetching metadata from IPFS[CID: ${ipfsCID}]`);
-    return await HeliaJSON().get(ipfsCID);
+    const json = await this.HeliaJSON();
+    return await json.get(ipfsCID);
   }
 
   _enhanceServiceGroupDetails(serviceMetadata, orgMetadata) {
@@ -97,16 +102,13 @@ export default class IPFSMetadataProvider {
   async _constructHeliaClient() {
     console.log("DEBUG: _constructHeliaClient: " + this._ipfsEndpoint);
     const url = new URL(this._ipfsEndpoint);
-    // Initialize Helia client
-    // const createHelia = await new HeliaClient();
     const heliaConfig = {
-      // Helia-specific configuration
-      // Add any additional Helia configurations here
-      // This may include libp2p configuration, datastore, etc.
       protocol: url.protocol.replace(":", ""),
       host: url.hostname,
       port: url.port || 5001,
     };
-    return await HeliaClient(heliaConfig);
+    const createHelia = await this.HeliaClient();
+    const helia = createHelia(heliaConfig);
+    return helia;
   }
 }
